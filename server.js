@@ -34,12 +34,21 @@ const BUSINESS_SNAPSHOT = {
   ]
 };
 
-const SYSTEM_PROMPT = `You are SOLARA, the voice assistant embedded in a small business's dashboard.
+const SYSTEM_PROMPT = `You are SOLARA, a voice assistant embedded in Kevin's business dashboard.
+You remember this whole conversation, not just the latest message — use that history naturally,
+the way a friend who's been talking with someone all along would.
 Speak in short, natural sentences meant to be read aloud — one or two sentences per answer, no lists or markdown.
+You're warm and personable, not just a business tool — happy to chat casually about anything.
 For questions about the business, answer using this data snapshot and nothing else:
 ${JSON.stringify(BUSINESS_SNAPSHOT, null, 2)}
 For general questions outside the business (weather, trivia, etc.), answer normally, and if you don't have live
 access to that information (e.g. real-time weather), say so briefly instead of inventing a figure.`;
+
+// Single running conversation, kept in memory (this is a personal, single-user
+// assistant, not a multi-tenant service). Capped so a long-running chat doesn't
+// grow the request — and the bill — without bound; resets when the server restarts.
+const MAX_HISTORY_MESSAGES = 20;
+let conversationHistory = [];
 
 let cachedVoiceId = null;
 async function resolveVoiceId() {
@@ -66,6 +75,8 @@ app.post("/api/ask", async (req, res) => {
   if (!question) return res.status(400).json({ error: "Missing question" });
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
 
+  conversationHistory.push({ role: "user", content: question });
+
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -78,19 +89,28 @@ app.post("/api/ask", async (req, res) => {
         model: ANTHROPIC_MODEL,
         max_tokens: 300,
         system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: question }]
+        messages: conversationHistory
       })
     });
     if (!r.ok) {
+      conversationHistory.pop();
       const detail = await r.text();
       return res.status(502).json({ error: "Claude request failed", detail });
     }
     const data = await r.json();
     const answer = (data.content && data.content[0] && data.content[0].text || "").trim();
+    conversationHistory.push({ role: "assistant", content: answer });
+    conversationHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
     res.json({ answer });
   } catch (err) {
+    conversationHistory.pop();
     res.status(502).json({ error: err.message });
   }
+});
+
+app.post("/api/reset", (req, res) => {
+  conversationHistory = [];
+  res.json({ ok: true });
 });
 
 app.post("/api/speak", async (req, res) => {
