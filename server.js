@@ -108,6 +108,7 @@ app.post("/api/ask", async (req, res) => {
         model: ANTHROPIC_MODEL,
         max_tokens: 300,
         system: SYSTEM_PROMPT,
+        thinking: { type: "disabled" },
         messages: conversationHistory.slice(-RECENT_WINDOW)
       })
     });
@@ -117,7 +118,8 @@ app.post("/api/ask", async (req, res) => {
       return res.status(502).json({ error: "Claude request failed", detail });
     }
     const data = await r.json();
-    const answer = (data.content && data.content[0] && data.content[0].text || "").trim();
+    const textBlock = (data.content || []).find((b) => b.type === "text");
+    const answer = (textBlock && textBlock.text || "").trim();
     conversationHistory.push({ role: "assistant", content: answer });
     saveHistory(conversationHistory);
     res.json({ answer });
