@@ -10,6 +10,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, "data");
 const HISTORY_FILE = path.join(DATA_DIR, "conversation.json");
 
+// Upstash Redis (REST API — works over plain HTTPS, no persistent connection
+// needed) lets conversation memory survive on hosts with no persistent disk,
+// like Render's free tier. Falls back to the local file when unset.
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const UPSTASH_KEY = "solara:conversation";
+
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
@@ -56,7 +63,21 @@ access to that information (e.g. real-time weather), say so briefly instead of i
 // context, and the bill, would grow without bound the longer this stays in use.
 const RECENT_WINDOW = 40;
 
-function loadHistory() {
+const usingRedis = Boolean(UPSTASH_URL && UPSTASH_TOKEN);
+
+async function loadHistory() {
+  if (usingRedis) {
+    try {
+      const r = await fetch(`${UPSTASH_URL}/get/${UPSTASH_KEY}`, {
+        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
+      });
+      const data = await r.json();
+      const parsed = data.result ? JSON.parse(data.result) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
     return Array.isArray(parsed) ? parsed : [];
@@ -65,12 +86,20 @@ function loadHistory() {
   }
 }
 
-function saveHistory(history) {
+async function saveHistory(history) {
+  if (usingRedis) {
+    await fetch(`${UPSTASH_URL}/set/${UPSTASH_KEY}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(JSON.stringify(history))
+    });
+    return;
+  }
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
 }
 
-let conversationHistory = loadHistory();
+let conversationHistory = [];
 
 let cachedVoiceId = null;
 async function resolveVoiceId() {
@@ -124,7 +153,7 @@ app.post("/api/ask", async (req, res) => {
     const textBlock = (data.content || []).find((b) => b.type === "text");
     const answer = (textBlock && textBlock.text || "").trim();
     conversationHistory.push({ role: "assistant", content: answer });
-    saveHistory(conversationHistory);
+    await saveHistory(conversationHistory);
     res.json({ answer });
   } catch (err) {
     conversationHistory.pop();
@@ -132,9 +161,9 @@ app.post("/api/ask", async (req, res) => {
   }
 });
 
-app.post("/api/reset", (req, res) => {
+app.post("/api/reset", async (req, res) => {
   conversationHistory = [];
-  saveHistory(conversationHistory);
+  await saveHistory(conversationHistory);
   res.json({ ok: true });
 });
 
@@ -168,6 +197,7 @@ app.post("/api/speak", async (req, res) => {
   }
 });
 
+conversationHistory = await loadHistory();
 app.listen(PORT, () => {
-  console.log(`SOLARA running at http://localhost:${PORT}`);
+  console.log(`SOLARA running at http://localhost:${PORT}${usingRedis ? " (Upstash Redis)" : " (local file)"}`);
 });
