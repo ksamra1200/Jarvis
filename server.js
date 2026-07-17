@@ -51,7 +51,7 @@ access to that information (e.g. real-time weather), say so briefly instead of i
 // multi-tenant service), persisted to disk so it survives restarts. The full log
 // is kept, but only the most recent slice is ever sent to Claude — otherwise the
 // context, and the bill, would grow without bound the longer this stays in use.
-const RECENT_WINDOW = 100;
+const RECENT_WINDOW = 40;
 
 function loadHistory() {
   try {
