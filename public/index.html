@@ -1,0 +1,475 @@
+<title>SOLARA — System Core</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --void:        #050708;
+    --hair:        rgba(120, 220, 240, 0.16);
+    --hair-bright: rgba(140, 230, 250, 0.34);
+    --grid-line:   rgba(90, 200, 220, 0.06);
+
+    --ink:         #eafeff;
+    --ink-2:       #9fd3db;
+    --ink-muted:   #4c6167;
+
+    --cyan:        #2be6ff;
+    --cyan-soft:   #7fd9e8;
+    --cyan-dim:    #135866;
+    --cyan-glow:   rgba(43, 230, 255, 0.55);
+
+    --red:         #ff4d5e;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--void);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; }
+  .tracked { letter-spacing: 0.14em; text-transform: uppercase; }
+
+  /* ---------------- Ambient field ---------------- */
+  .field { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .field::before {
+    content: ""; position: absolute; inset: -10%;
+    background:
+      radial-gradient(circle at 50% 45%, rgba(43,230,255,0.09), transparent 42%),
+      radial-gradient(circle at 12% 85%, rgba(143,133,255,0.05), transparent 40%),
+      repeating-linear-gradient(0deg, var(--grid-line) 0px, var(--grid-line) 1px, transparent 1px, transparent 34px),
+      repeating-linear-gradient(90deg, var(--grid-line) 0px, var(--grid-line) 1px, transparent 1px, transparent 34px);
+  }
+  .scanline {
+    position: absolute; left: 0; right: 0; height: 160px;
+    background: linear-gradient(180deg, transparent, rgba(43,230,255,0.045), transparent);
+    animation: sweep 10s linear infinite;
+  }
+  @keyframes sweep { from { top: -160px; } to { top: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .scanline { animation: none; display: none; } }
+
+  /* ---------------- Page corner frame ---------------- */
+  .frame-corner { position: fixed; width: 26px; height: 26px; z-index: 2; pointer-events: none; }
+  .frame-corner.tl { top: 18px; left: 18px; border-top: 1.5px solid var(--hair-bright); border-left: 1.5px solid var(--hair-bright); }
+  .frame-corner.tr { top: 18px; right: 18px; border-top: 1.5px solid var(--hair-bright); border-right: 1.5px solid var(--hair-bright); }
+  .frame-corner.bl { bottom: 18px; left: 18px; border-bottom: 1.5px solid var(--hair-bright); border-left: 1.5px solid var(--hair-bright); }
+  .frame-corner.br { bottom: 18px; right: 18px; border-bottom: 1.5px solid var(--hair-bright); border-right: 1.5px solid var(--hair-bright); }
+
+  /* ---------------- Status chrome ---------------- */
+  .hud-label { position: fixed; z-index: 2; font-size: 10px; letter-spacing: 0.12em; color: var(--ink-muted); }
+  .hud-label b { color: var(--cyan-soft); font-weight: 600; }
+  .hud-label .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 6px var(--cyan); margin-right: 6px; vertical-align: middle; animation: blink 2.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .hud-label .dot { animation: none; } }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .pos-tl { top: 34px; left: 56px; }
+  .pos-tr { top: 34px; right: 56px; text-align: right; }
+  .pos-bl { bottom: 34px; left: 56px; }
+  .pos-br { bottom: 34px; right: 56px; text-align: right; }
+
+  /* ---------------- Center stage ---------------- */
+  .stage {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px;
+    padding: 90px 24px;
+  }
+  .core-wrap { position: relative; width: min(560px, 88vw); aspect-ratio: 1 / 1; }
+  .core-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+
+  .spin-slow    { transform-box: fill-box; transform-origin: 50% 50%; animation: spin 90s linear infinite; }
+  .spin-slow-rev{ transform-box: fill-box; transform-origin: 50% 50%; animation: spin-rev 60s linear infinite; }
+  .spin-med     { transform-box: fill-box; transform-origin: 50% 50%; animation: spin 34s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes spin-rev { to { transform: rotate(-360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spin-slow, .spin-slow-rev, .spin-med { animation: none; }
+  }
+
+  .core-pulse { transform-box: fill-box; transform-origin: 50% 50%; animation: corepulse 3.6s ease-in-out infinite; }
+  @keyframes corepulse { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .core-pulse { animation: none; opacity: 0.9; } }
+
+  .wordmark { font-size: 34px; font-weight: 300; letter-spacing: 0.22em; fill: var(--ink); }
+
+  /* ---------------- Voice interaction ---------------- */
+  .core-hit {
+    position: absolute; top: 50%; left: 50%; width: 43.3%; height: 43.3%;
+    transform: translate(-50%, -50%); border-radius: 50%;
+    background: transparent; border: none; padding: 0; cursor: pointer; z-index: 2;
+  }
+  .core-hit:focus-visible { outline: 1.5px solid var(--cyan); outline-offset: 6px; }
+  .core-hit:disabled { cursor: default; }
+
+  .voice-panel {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    width: min(560px, 88vw); margin-top: 8px;
+  }
+  .voice-status {
+    font-size: 10px; letter-spacing: 0.26em; color: var(--ink-muted); min-height: 12px;
+    transition: color .2s ease;
+  }
+  .voice-status.state-listening, .voice-status.state-speaking { color: var(--cyan); }
+  .voice-status.state-processing { color: var(--ink-2); }
+
+  .convo { min-height: 48px; display: flex; flex-direction: column; gap: 7px; align-items: center; text-align: center; }
+  .convo-line { font-size: 12.5px; letter-spacing: 0.02em; opacity: 0; max-width: 46ch; }
+  .convo-you { color: var(--ink-2); }
+  .convo-ai { color: var(--ink); }
+
+  .quick-asks { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .quick-chip {
+    font-family: inherit; font-size: 10px; letter-spacing: 0.07em; color: var(--ink-2);
+    background: transparent; border: 1px solid var(--hair); padding: 7px 12px; cursor: pointer;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .quick-chip:hover:not(:disabled) { border-color: var(--hair-bright); color: var(--ink); }
+  .quick-chip:disabled { opacity: 0.35; cursor: default; }
+  .quick-chip:focus-visible { outline: 1.5px solid var(--cyan); outline-offset: 2px; }
+
+  .tap-hint { font-size: 9.5px; letter-spacing: 0.14em; color: var(--ink-muted); animation: hintfade 2.6s ease-in-out infinite; }
+  .tap-hint.hidden { display: none; }
+  @keyframes hintfade { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .tap-hint { animation: none; opacity: 0.7; } }
+</style>
+
+<div class="field"><div class="scanline"></div></div>
+<span class="frame-corner tl"></span><span class="frame-corner tr"></span>
+<span class="frame-corner bl"></span><span class="frame-corner br"></span>
+
+<div class="hud-label mono pos-tl"><span class="dot"></span>SOLARA DIGITAL</div>
+<div class="hud-label mono pos-tr" id="clockLabel">SYSTEM ONLINE</div>
+<div class="hud-label mono pos-bl">UPLINK &middot; STABLE</div>
+<div class="hud-label mono pos-br">VOICE &middot; DANIEL / ELEVENLABS</div>
+
+<div class="stage">
+  <div class="core-wrap">
+    <svg class="core-svg mono" id="coreSvg" viewBox="0 0 480 480" role="img" aria-label="SOLARA system core, holographic emblem">
+      <defs>
+        <filter id="g1" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="2.6" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="g2" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="6" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <radialGradient id="coreFill" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="rgba(43,230,255,0.22)"/>
+          <stop offset="70%" stop-color="rgba(43,230,255,0.06)"/>
+          <stop offset="100%" stop-color="rgba(43,230,255,0)"/>
+        </radialGradient>
+      </defs>
+
+      <g id="outerTicks"></g>
+      <circle cx="240" cy="240" r="269" fill="none" stroke="var(--hair)" stroke-width="1"/>
+
+      <g class="spin-slow" id="dashRing"></g>
+
+      <g id="scaleTicks"></g>
+
+      <g class="spin-slow-rev">
+        <circle cx="240" cy="240" r="210" fill="none" stroke="var(--cyan-dim)" stroke-width="1" stroke-dasharray="1 7"/>
+        <path d="M 240 30 A 210 210 0 0 1 408 137" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" filter="url(#g1)"/>
+        <path d="M 66 366 A 210 210 0 0 1 132 447" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" filter="url(#g1)"/>
+      </g>
+
+      <g id="barRing" class="spin-med"></g>
+
+      <circle cx="240" cy="240" r="172" fill="url(#coreFill)"/>
+      <g class="core-pulse">
+        <circle cx="240" cy="240" r="172" fill="none" stroke="var(--cyan)" stroke-width="1.2" filter="url(#g1)"/>
+        <circle cx="240" cy="240" r="156" fill="none" stroke="var(--cyan-dim)" stroke-width="1"/>
+        <circle cx="240" cy="240" r="140" fill="none" stroke="var(--hair-bright)" stroke-width="1"/>
+      </g>
+
+      <g class="spin-slow" style="animation-duration:120s">
+        <circle cx="240" cy="240" r="122" fill="none" stroke="var(--cyan-dim)" stroke-width="1" stroke-dasharray="10 6"/>
+      </g>
+
+      <circle cx="240" cy="240" r="104" fill="rgba(5,10,12,0.86)" stroke="var(--cyan)" stroke-width="1.4" filter="url(#g2)"/>
+      <circle cx="240" cy="240" r="104" fill="none" stroke="var(--hair-bright)" stroke-width="1"/>
+
+      <text x="240" y="250" text-anchor="middle" class="wordmark">SOLARA</text>
+
+      <g class="spin-med" style="animation-duration:26s">
+        <circle cx="240" cy="30" r="3.4" fill="var(--cyan)" filter="url(#g1)"/>
+      </g>
+      <g class="spin-slow-rev" style="animation-duration:44s">
+        <circle cx="240" cy="-29" r="2.6" fill="var(--red)" filter="url(#g1)"/>
+      </g>
+
+      <text x="228" y="470" font-size="9" letter-spacing="0.12em" fill="var(--red)" opacity="0.85">R-04</text>
+    </svg>
+    <button class="core-hit" id="coreHit" type="button" aria-label="Ask SOLARA a question"></button>
+  </div>
+
+  <div class="voice-panel">
+    <div class="voice-status mono" id="voiceStatus">STANDBY</div>
+    <div class="convo" id="convo">
+      <div class="convo-line convo-you mono" id="convoYou"></div>
+      <div class="convo-line convo-ai mono" id="convoAi"></div>
+    </div>
+    <div class="quick-asks" id="quickAsks">
+      <button class="quick-chip mono" data-ask="0" type="button">REVENUE THIS MONTH</button>
+      <button class="quick-chip mono" data-ask="1" type="button">OVERDUE INVOICES</button>
+      <button class="quick-chip mono" data-ask="2" type="button">TODAY'S WEATHER</button>
+    </div>
+    <div class="tap-hint mono" id="tapHint">TAP THE CORE TO SPEAK</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var cx = 240, cy = 240;
+
+  function el(tag, attrs) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+
+  /* Outer sparse ticks (radius 246) with two short red accents */
+  var outer = document.getElementById("outerTicks");
+  var outerAngles = [8, 47, 63, 101, 138, 172, 196, 224, 251, 289, 314, 337];
+  outerAngles.forEach(function (deg, i) {
+    var r1 = 283, r2 = 295;
+    var rad = deg * Math.PI / 180;
+    var x1 = cx + r1 * Math.cos(rad), y1 = cy + r1 * Math.sin(rad);
+    var x2 = cx + r2 * Math.cos(rad), y2 = cy + r2 * Math.sin(rad);
+    var isRed = i === 4 || i === 9;
+    outer.appendChild(el("line", {
+      x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2),
+      stroke: isRed ? "var(--red)" : "var(--hair-bright)", "stroke-width": isRed ? 1.6 : 1,
+      opacity: isRed ? 0.85 : 0.6
+    }));
+  });
+
+  /* Dashed technical ring (radius 210) — irregular arcs, not a full circle */
+  var dashRing = document.getElementById("dashRing");
+  var arcs = [[10, 70], [95, 150], [175, 230], [255, 300], [320, 355]];
+  arcs.forEach(function (a) {
+    var r = 248;
+    var start = a[0] * Math.PI / 180, end = a[1] * Math.PI / 180;
+    var x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
+    var x2 = cx + r * Math.cos(end), y2 = cy + r * Math.sin(end);
+    var large = (a[1] - a[0]) > 180 ? 1 : 0;
+    dashRing.appendChild(el("path", {
+      d: "M " + x1.toFixed(2) + " " + y1.toFixed(2) + " A " + r + " " + r + " 0 " + large + " 1 " + x2.toFixed(2) + " " + y2.toFixed(2),
+      fill: "none", stroke: "var(--cyan-dim)", "stroke-width": 1.4, "stroke-dasharray": "1 5", "stroke-linecap": "round"
+    }));
+  });
+
+  /* Fine scale ticks (radius ~196), every 6deg, longer every 30deg */
+  var scale = document.getElementById("scaleTicks");
+  for (var d = 0; d < 360; d += 6) {
+    var long = d % 30 === 0;
+    var r1 = 222, r2 = long ? 213 : 216;
+    var rad = d * Math.PI / 180;
+    var x1 = cx + r1 * Math.cos(rad), y1 = cy + r1 * Math.sin(rad);
+    var x2 = cx + r2 * Math.cos(rad), y2 = cy + r2 * Math.sin(rad);
+    scale.appendChild(el("line", {
+      x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2),
+      stroke: "var(--cyan-soft)", "stroke-width": long ? 1.2 : 0.7, opacity: long ? 0.55 : 0.28
+    }));
+  }
+
+  /* Tick-bar ring (radius ~160) — uniform at rest, animates as a voice waveform when active */
+  var barRing = document.getElementById("barRing");
+  var BARS = 56;
+  var BAR_LEN = 14;
+  var barsMeta = [];
+  for (var i = 0; i < BARS; i++) {
+    var deg2 = (360 / BARS) * i;
+    var seed = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;
+    var r1b = 188;
+    var radB = deg2 * Math.PI / 180;
+    var x1b = cx + r1b * Math.cos(radB), y1b = cy + r1b * Math.sin(radB);
+    var line = el("line", {
+      x1: x1b.toFixed(2), y1: y1b.toFixed(2), x2: x1b.toFixed(2), y2: (y1b + BAR_LEN).toFixed(2),
+      stroke: "var(--cyan)", "stroke-width": 2, "stroke-linecap": "round", opacity: (0.35 + seed * 0.35).toFixed(2)
+    });
+    barRing.appendChild(line);
+    barsMeta.push({ line: line, angle: radB, r1: r1b, seed: seed, curLen: BAR_LEN });
+  }
+
+  function setBarLen(m, len) {
+    var r2 = m.r1 + len;
+    m.line.setAttribute("x2", (cx + r2 * Math.cos(m.angle)).toFixed(2));
+    m.line.setAttribute("y2", (cy + r2 * Math.sin(m.angle)).toFixed(2));
+  }
+
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var barAnimActive = false, barAnimRAF = null, barAnimStart = 0;
+  function barLoop(ts) {
+    if (!barAnimStart) barAnimStart = ts;
+    var t = ts - barAnimStart;
+    var settled = true;
+    barsMeta.forEach(function (m) {
+      var target = barAnimActive
+        ? 8 + 24 * Math.abs(Math.sin(t * 0.005 * (0.6 + m.seed * 0.8) + m.seed * 10))
+        : BAR_LEN;
+      m.curLen += (target - m.curLen) * 0.25;
+      setBarLen(m, m.curLen);
+      if (!barAnimActive && Math.abs(m.curLen - BAR_LEN) > 0.3) settled = false;
+    });
+    if (barAnimActive || !settled) {
+      barAnimRAF = requestAnimationFrame(barLoop);
+    } else {
+      barAnimRAF = null; barAnimStart = 0;
+    }
+  }
+  function startBarAnim() {
+    if (reduceMotion) return;
+    barAnimActive = true;
+    if (!barAnimRAF) { barAnimStart = 0; barAnimRAF = requestAnimationFrame(barLoop); }
+  }
+  function stopBarAnim() {
+    barAnimActive = false;
+    if (reduceMotion) return;
+    if (!barAnimRAF) { barAnimStart = 0; barAnimRAF = requestAnimationFrame(barLoop); }
+  }
+
+  /* Live clock / date readout */
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function tick() {
+    var now = new Date();
+    document.getElementById("clockLabel").textContent =
+      pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds()) + " LOCAL";
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  /* ---------------- Voice interaction (scripted prompts, live Claude + ElevenLabs) ---------------- */
+  var canned = [
+    "What was my revenue last month?",
+    "Do I have any overdue invoices?",
+    "What's the weather like today?"
+  ];
+  var cycleIndex = 0;
+  var busy = false;
+
+  var statusEl = document.getElementById("voiceStatus");
+  var youEl = document.getElementById("convoYou");
+  var aiEl = document.getElementById("convoAi");
+  var coreHit = document.getElementById("coreHit");
+  var tapHint = document.getElementById("tapHint");
+  var quickChips = document.querySelectorAll(".quick-chip");
+
+  function setStatus(text, state) {
+    statusEl.textContent = text;
+    statusEl.className = "voice-status mono" + (state ? " state-" + state : "");
+  }
+
+  function setBusy(v) {
+    busy = v;
+    coreHit.disabled = v;
+    quickChips.forEach(function (c) { c.disabled = v; });
+  }
+
+  function typeLine(node, text, done) {
+    node.style.opacity = "1";
+    node.textContent = "";
+    var i = 0;
+    (function step() {
+      node.textContent += text.charAt(i);
+      i++;
+      if (i < text.length) { setTimeout(step, 16); } else if (done) { done(); }
+    })();
+  }
+
+  /* Plays ElevenLabs audio from the backend; falls back to the browser voice if the server call fails. */
+  function speak(text, done) {
+    fetch("/api/speak", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: text })
+    })
+      .then(function (r) { if (!r.ok) throw new Error("speak-failed"); return r.blob(); })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var audio = new Audio(url);
+        audio.onended = function () { URL.revokeObjectURL(url); done(); };
+        audio.onerror = function () { URL.revokeObjectURL(url); done(); };
+        audio.play().catch(function () { URL.revokeObjectURL(url); done(); });
+      })
+      .catch(function () { speakFallback(text, done); });
+  }
+
+  function speakFallback(text, done) {
+    if (!("speechSynthesis" in window)) { setTimeout(done, 1300); return; }
+    try {
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.02; u.pitch = 0.95;
+      u.onend = done; u.onerror = done;
+      window.speechSynthesis.speak(u);
+    } catch (e) { setTimeout(done, 1300); }
+  }
+
+  function respond(question) {
+    setStatus("PROCESSING", "processing");
+    fetch("/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question: question })
+    })
+      .then(function (r) { if (!r.ok) throw new Error("ask-failed"); return r.json(); })
+      .then(function (data) {
+        var answer = data.answer || "I didn't get a response for that.";
+        setStatus("SPEAKING", "speaking");
+        startBarAnim();
+        typeLine(aiEl, answer);
+        speak(answer, function () {
+          stopBarAnim();
+          setStatus("STANDBY");
+          setBusy(false);
+        });
+      })
+      .catch(function () {
+        setStatus("STANDBY");
+        typeLine(aiEl, "Connection error — check the server's API keys.");
+        setBusy(false);
+      });
+  }
+
+  function ask(question, opts) {
+    if (busy) return;
+    setBusy(true);
+    tapHint.classList.add("hidden");
+    aiEl.style.opacity = "0"; aiEl.textContent = "";
+
+    if (opts && opts.skipListen) {
+      youEl.style.opacity = "1";
+      youEl.textContent = question;
+      respond(question);
+    } else {
+      youEl.style.opacity = "0"; youEl.textContent = "";
+      setStatus("LISTENING", "listening");
+      startBarAnim();
+      setTimeout(function () {
+        stopBarAnim();
+        typeLine(youEl, question, function () { respond(question); });
+      }, 1500);
+    }
+  }
+
+  coreHit.addEventListener("click", function () {
+    ask(canned[cycleIndex]);
+    cycleIndex = (cycleIndex + 1) % canned.length;
+  });
+
+  quickChips.forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      var idx = parseInt(chip.getAttribute("data-ask"), 10);
+      ask(canned[idx], { skipListen: true });
+    });
+  });
+})();
+</script>
