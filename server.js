@@ -1,8 +1,11 @@
 import express from "express";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, "data");
+const HISTORY_FILE = path.join(DATA_DIR, "conversation.json");
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
@@ -44,11 +47,27 @@ ${JSON.stringify(BUSINESS_SNAPSHOT, null, 2)}
 For general questions outside the business (weather, trivia, etc.), answer normally, and if you don't have live
 access to that information (e.g. real-time weather), say so briefly instead of inventing a figure.`;
 
-// Single running conversation, kept in memory (this is a personal, single-user
-// assistant, not a multi-tenant service). Capped so a long-running chat doesn't
-// grow the request — and the bill — without bound; resets when the server restarts.
-const MAX_HISTORY_MESSAGES = 20;
-let conversationHistory = [];
+// Single running conversation (this is a personal, single-user assistant, not a
+// multi-tenant service), persisted to disk so it survives restarts. The full log
+// is kept, but only the most recent slice is ever sent to Claude — otherwise the
+// context, and the bill, would grow without bound the longer this stays in use.
+const RECENT_WINDOW = 20;
+
+function loadHistory() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(history) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+}
+
+let conversationHistory = loadHistory();
 
 let cachedVoiceId = null;
 async function resolveVoiceId() {
@@ -89,7 +108,7 @@ app.post("/api/ask", async (req, res) => {
         model: ANTHROPIC_MODEL,
         max_tokens: 300,
         system: SYSTEM_PROMPT,
-        messages: conversationHistory
+        messages: conversationHistory.slice(-RECENT_WINDOW)
       })
     });
     if (!r.ok) {
@@ -100,7 +119,7 @@ app.post("/api/ask", async (req, res) => {
     const data = await r.json();
     const answer = (data.content && data.content[0] && data.content[0].text || "").trim();
     conversationHistory.push({ role: "assistant", content: answer });
-    conversationHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+    saveHistory(conversationHistory);
     res.json({ answer });
   } catch (err) {
     conversationHistory.pop();
@@ -110,6 +129,7 @@ app.post("/api/ask", async (req, res) => {
 
 app.post("/api/reset", (req, res) => {
   conversationHistory = [];
+  saveHistory(conversationHistory);
   res.json({ ok: true });
 });
 
