@@ -4,7 +4,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "data");
+// On a host with a persistent volume, set DATA_DIR to its mount path so
+// conversation history survives redeploys — otherwise it defaults to a
+// local folder, which is fine for local runs but wiped on most hosts.
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, "data");
 const HISTORY_FILE = path.join(DATA_DIR, "conversation.json");
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
