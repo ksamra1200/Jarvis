@@ -228,6 +228,7 @@ app.post("/api/ask", async (req, res) => {
     res.json({ answer });
   } catch (err) {
     conversationHistory.pop();
+    console.error("[/api/ask] failed:", err.message);
     res.status(502).json({ error: err.message });
   }
 });
@@ -259,11 +260,13 @@ app.post("/api/speak", async (req, res) => {
     });
     if (!r.ok) {
       const detail = await r.text();
+      console.error("[/api/speak] ElevenLabs request failed:", r.status, detail);
       return res.status(502).json({ error: "ElevenLabs request failed", detail });
     }
     res.setHeader("content-type", "audio/mpeg");
     res.send(Buffer.from(await r.arrayBuffer()));
   } catch (err) {
+    console.error("[/api/speak] failed:", err.message);
     res.status(502).json({ error: err.message });
   }
 });

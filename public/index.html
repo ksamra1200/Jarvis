@@ -390,15 +390,28 @@
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: text })
     })
-      .then(function (r) { if (!r.ok) throw new Error("speak-failed"); return r.blob(); })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().then(function (body) {
+            throw new Error("ElevenLabs request failed: " + (body.detail || body.error || r.status));
+          }, function () { throw new Error("ElevenLabs request failed: " + r.status); });
+        }
+        return r.blob();
+      })
       .then(function (blob) {
         var url = URL.createObjectURL(blob);
         var audio = new Audio(url);
         audio.onended = function () { URL.revokeObjectURL(url); done(); };
         audio.onerror = function () { URL.revokeObjectURL(url); done(); };
-        audio.play().catch(function () { URL.revokeObjectURL(url); done(); });
+        audio.play().catch(function (err) {
+          console.warn("SOLARA: audio playback blocked, falling back to browser voice.", err);
+          URL.revokeObjectURL(url); done();
+        });
       })
-      .catch(function () { speakFallback(text, done); });
+      .catch(function (err) {
+        console.warn("SOLARA: ElevenLabs unavailable, falling back to browser voice.", err.message);
+        speakFallback(text, done);
+      });
   }
 
   function speakFallback(text, done) {
