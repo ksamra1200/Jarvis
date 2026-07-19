@@ -20,7 +20,7 @@ const UPSTASH_KEY = "solara:conversation";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
-const ELEVENLABS_VOICE_NAME = process.env.ELEVENLABS_VOICE_NAME || "Daniel";
+const ELEVENLABS_VOICE_NAME = process.env.ELEVENLABS_VOICE_NAME || "Jarvis";
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_turbo_v2_5";
 const PORT = process.env.PORT || 3000;
 

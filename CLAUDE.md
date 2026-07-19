@@ -13,7 +13,7 @@ session (or Kevin himself) can pick up context without re-reading the whole chat
     snapshot (`BUSINESS_SNAPSHOT`) plus conversation history. Grounds business questions in
     that snapshot; answers general questions normally.
   - `POST /api/speak` — calls ElevenLabs TTS. Looks up the voice by *name* (`ELEVENLABS_VOICE_NAME`,
-    default "Daniel") via `/v1/voices` rather than hardcoding a voice ID.
+    default "Jarvis") via `/v1/voices` rather than hardcoding a voice ID.
   - `POST /api/reset` — clears conversation history.
   - Tool use: `/api/ask` gives Claude a `get_weather` tool (US-only) backed by free services —
     Nominatim for geocoding, the National Weather Service API for the forecast. No API key for
@@ -38,10 +38,17 @@ session (or Kevin himself) can pick up context without re-reading the whole chat
   **removed** to focus on nailing the circular core design first — they're not gone forever,
   just deferred. Re-adding them around the core is a natural next step if asked.
 - The wordmark is plain "SOLARA" (no acronym-style dots), light font weight, no subtitle.
-- Voice: deliberately picked "Daniel" (a stock ElevenLabs voice — calm, British, authoritative)
-  instead of attempting to clone the actual JARVIS/Paul Bettany voice, which would be a
-  copyright/likeness problem. Don't reintroduce an exact-clone request without flagging that
-  concern again.
+- Voice: started with "Daniel" (a stock ElevenLabs voice), but ended up using ElevenLabs
+  **Voice Design** — a synthetic voice generated from a text description, not cloned from any
+  real person's recordings — to get closer to a JARVIS-like character (British, composed,
+  personality-forward) without the copyright/likeness problem of cloning the actual
+  JARVIS/Paul Bettany performance. Kevin named the resulting voice "Jarvis" in his ElevenLabs
+  account; that's just a private label, not a claim about its origin. Iterated the design prompt
+  several times (register, pace, gender, age, personality) before landing on: British male,
+  20s, contemporary accent, mid register, brisk pace, expressive/warm with a playful wit — a
+  sharp, likable-friend energy rather than a stiff formal assistant. Don't reintroduce an
+  actual voice-clone request (uploading/replicating real JARVIS audio) without flagging that
+  concern again — Voice Design from a description remains the safe path.
 - Tapping the core starts **real** microphone input (the browser's SpeechRecognition /
   webkitSpeechRecognition API — no server-side STT, no extra cost or API key). Live interim
   transcript renders as you speak; on silence it finalizes and sends the question to Claude.
@@ -53,7 +60,7 @@ session (or Kevin himself) can pick up context without re-reading the whole chat
 
 Required: `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`.
 Notable optional ones: `ANTHROPIC_MODEL` (default `claude-sonnet-5`), `ELEVENLABS_VOICE_NAME`
-(default `Daniel`), `DATA_DIR` (persistent-volume mount path, e.g. Railway), or
+(default `Jarvis`), `DATA_DIR` (persistent-volume mount path, e.g. Railway), or
 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` (Redis-backed memory, e.g. for Render's
 free tier which has no persistent disk — falls back to the local file if unset).
 
