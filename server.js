@@ -54,8 +54,51 @@ Speak in short, natural sentences meant to be read aloud — one or two sentence
 You're warm and personable, not just a business tool — happy to chat casually about anything.
 For questions about the business, answer using this data snapshot and nothing else:
 ${JSON.stringify(BUSINESS_SNAPSHOT, null, 2)}
-For general questions outside the business (weather, trivia, etc.), answer normally, and if you don't have live
-access to that information (e.g. real-time weather), say so briefly instead of inventing a figure.`;
+For general questions outside the business, answer normally. You have a get_weather tool for current conditions
+and forecasts anywhere in the United States — use it when asked about weather; if the location is outside the US,
+say the tool only covers the US instead of guessing. For other real-time information you don't have access to,
+say so briefly instead of inventing a figure.`;
+
+const WEATHER_TOOL = {
+  name: "get_weather",
+  description: "Get the current weather forecast for a US location. Only covers locations within the United States.",
+  input_schema: {
+    type: "object",
+    properties: {
+      location: { type: "string", description: "City and state, e.g. 'Renton, WA'" }
+    },
+    required: ["location"]
+  }
+};
+
+// A descriptive User-Agent is required by NWS and requested by Nominatim's usage policy.
+const GEO_USER_AGENT = "SOLARA-dashboard/1.0 (personal project)";
+
+async function geocodeLocation(location) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`;
+  const r = await fetch(url, { headers: { "User-Agent": GEO_USER_AGENT } });
+  if (!r.ok) throw new Error(`Geocoding failed: ${r.status}`);
+  const results = await r.json();
+  if (!results.length) throw new Error(`Couldn't find a location matching "${location}".`);
+  return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), displayName: results[0].display_name };
+}
+
+async function getWeather(location) {
+  const { lat, lon, displayName } = await geocodeLocation(location);
+  const pointsRes = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, {
+    headers: { "User-Agent": GEO_USER_AGENT }
+  });
+  if (!pointsRes.ok) {
+    if (pointsRes.status === 404) throw new Error(`"${location}" appears to be outside the US — the National Weather Service only covers US locations.`);
+    throw new Error(`NWS points lookup failed: ${pointsRes.status}`);
+  }
+  const points = await pointsRes.json();
+  const forecastRes = await fetch(points.properties.forecast, { headers: { "User-Agent": GEO_USER_AGENT } });
+  if (!forecastRes.ok) throw new Error(`NWS forecast lookup failed: ${forecastRes.status}`);
+  const forecast = await forecastRes.json();
+  const period = forecast.properties.periods[0];
+  return `${displayName}: ${period.name} — ${period.detailedForecast}`;
+}
 
 // Single running conversation (this is a personal, single-user assistant, not a
 // multi-tenant service), persisted to disk so it survives restarts. The full log
@@ -121,6 +164,35 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+async function callClaude(messages) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 300,
+      system: SYSTEM_PROMPT,
+      thinking: { type: "disabled" },
+      tools: [WEATHER_TOOL],
+      messages
+    })
+  });
+  if (!r.ok) {
+    const detail = await r.text();
+    throw new Error(`Claude request failed (${r.status}): ${detail}`);
+  }
+  return r.json();
+}
+
+async function runTool(block) {
+  if (block.name === "get_weather") return getWeather(block.input && block.input.location);
+  throw new Error(`Unknown tool: ${block.name}`);
+}
+
 app.post("/api/ask", async (req, res) => {
   const question = (req.body && req.body.question || "").trim();
   if (!question) return res.status(400).json({ error: "Missing question" });
@@ -129,27 +201,26 @@ app.post("/api/ask", async (req, res) => {
   conversationHistory.push({ role: "user", content: question });
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 300,
-        system: SYSTEM_PROMPT,
-        thinking: { type: "disabled" },
-        messages: conversationHistory.slice(-RECENT_WINDOW)
-      })
-    });
-    if (!r.ok) {
-      conversationHistory.pop();
-      const detail = await r.text();
-      return res.status(502).json({ error: "Claude request failed", detail });
+    let requestMessages = conversationHistory.slice(-RECENT_WINDOW);
+    let data = await callClaude(requestMessages);
+
+    let rounds = 0;
+    while (data.stop_reason === "tool_use" && rounds < 3) {
+      rounds++;
+      requestMessages = requestMessages.concat([{ role: "assistant", content: data.content }]);
+      const toolResults = [];
+      for (const block of data.content.filter((b) => b.type === "tool_use")) {
+        try {
+          const result = await runTool(block);
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+        } catch (err) {
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: err.message, is_error: true });
+        }
+      }
+      requestMessages = requestMessages.concat([{ role: "user", content: toolResults }]);
+      data = await callClaude(requestMessages);
     }
-    const data = await r.json();
+
     const textBlock = (data.content || []).find((b) => b.type === "text");
     const answer = (textBlock && textBlock.text || "").trim();
     conversationHistory.push({ role: "assistant", content: answer });
