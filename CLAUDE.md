@@ -37,9 +37,12 @@ session (or Kevin himself) can pick up context without re-reading the whole chat
   instead of attempting to clone the actual JARVIS/Paul Bettany voice, which would be a
   copyright/likeness problem. Don't reintroduce an exact-clone request without flagging that
   concern again.
-- The "listening" state is currently **simulated** — tapping the core or a quick-chip plays a
-  scripted prompt through the state machine (LISTENING → PROCESSING → SPEAKING), not real
-  microphone input. Real STT (e.g. Web Speech API) hasn't been wired up yet.
+- Tapping the core starts **real** microphone input (the browser's SpeechRecognition /
+  webkitSpeechRecognition API — no server-side STT, no extra cost or API key). Live interim
+  transcript renders as you speak; on silence it finalizes and sends the question to Claude.
+  Falls back to an on-screen message if the browser doesn't support it (Firefox notably
+  doesn't) or if mic permission is denied — quick-ask chips still work either way as a
+  keyboard-only path. Requires HTTPS in production (Railway provides this automatically).
 
 ## Environment variables (see `.env.example`)
 
@@ -61,17 +64,17 @@ free tier which has no persistent disk — falls back to the local file if unset
 - ElevenLabs (`/api/speak`) has **not** been tested end-to-end — the sandbox this was built in
   has an egress allowlist that blocks `api.elevenlabs.io`. The code path is written and should
   work once run somewhere without that restriction (should be fine on Railway).
-- Deployment target chosen: **Railway** (~$5/month Hobby plan, always-on, no idle spin-down —
-  chosen over Render's free tier specifically to avoid cold-start delay). Needs a persistent
-  Volume mounted at `/data` with `DATA_DIR=/data` set. Not yet actually deployed — Kevin needs
-  to do the account creation/connection himself.
+- Deployed to **Railway** (~$5/month Hobby plan, always-on, no idle spin-down — chosen over
+  Render's free tier specifically to avoid cold-start delay), with a persistent Volume mounted
+  at `/data` and `DATA_DIR=/data` set. Kevin did the account setup and deploy himself; env vars
+  entered directly into Railway's dashboard, never committed.
 - Working branch: `claude/business-metrics-dashboard-f33ar1` (not yet merged to `main`; no PR
   opened). Railway can deploy straight from this branch without merging first.
 
 ## Likely next steps (not yet requested, just the obvious continuations)
 
-- Actually deploy to Railway and verify ElevenLabs works for real.
-- Real microphone input (replacing the scripted "listening" simulation).
+- Verify ElevenLabs works for real now that it's deployed on Railway (untestable from the
+  sandbox this was built in — see below).
 - Re-add the metrics/KPI panels around the core, now that the design language is settled.
 - Consider whether "SOLARA" should eventually answer from *real* business data instead of the
   static `BUSINESS_SNAPSHOT` mock.

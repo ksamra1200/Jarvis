@@ -346,13 +346,12 @@
   tick();
   setInterval(tick, 1000);
 
-  /* ---------------- Voice interaction (scripted prompts, live Claude + ElevenLabs) ---------------- */
+  /* ---------------- Voice interaction (real mic input, live Claude + ElevenLabs) ---------------- */
   var canned = [
     "What was my revenue last month?",
     "Do I have any overdue invoices?",
     "What's the weather like today?"
   ];
-  var cycleIndex = 0;
   var busy = false;
 
   var statusEl = document.getElementById("voiceStatus");
@@ -439,36 +438,98 @@
       });
   }
 
-  function ask(question, opts) {
+  function ask(question) {
     if (busy) return;
     setBusy(true);
     tapHint.classList.add("hidden");
     aiEl.style.opacity = "0"; aiEl.textContent = "";
+    youEl.style.opacity = "1";
+    youEl.textContent = question;
+    respond(question);
+  }
 
-    if (opts && opts.skipListen) {
-      youEl.style.opacity = "1";
+  /* ---------------- Real microphone input ---------------- */
+  var SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognizer = null;
+  if (SpeechRecognitionAPI) {
+    recognizer = new SpeechRecognitionAPI();
+    recognizer.continuous = false;
+    recognizer.interimResults = true;
+    recognizer.lang = "en-US";
+  }
+
+  function showError(text) {
+    aiEl.style.opacity = "1";
+    aiEl.textContent = text;
+  }
+
+  function startListening() {
+    if (busy) return;
+    setBusy(true);
+    tapHint.classList.add("hidden");
+    aiEl.style.opacity = "0"; aiEl.textContent = "";
+    youEl.style.opacity = "1"; youEl.textContent = "";
+
+    if (!recognizer) {
+      setStatus("STANDBY");
+      showError("Voice recognition isn't supported in this browser — try Chrome or Edge, or use a quick-ask below.");
+      setBusy(false);
+      return;
+    }
+
+    setStatus("LISTENING", "listening");
+    startBarAnim();
+
+    var finalTranscript = "";
+
+    recognizer.onresult = function (event) {
+      var interim = "";
+      for (var i = event.resultIndex; i < event.results.length; i++) {
+        var transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) { finalTranscript += transcript; }
+        else { interim += transcript; }
+      }
+      youEl.textContent = (finalTranscript + interim).trim();
+    };
+
+    recognizer.onerror = function (event) {
+      stopBarAnim();
+      setStatus("STANDBY");
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        showError("Microphone access was blocked — allow it in your browser's site settings and try again.");
+      } else if (event.error !== "aborted" && event.error !== "no-speech") {
+        showError("Didn't catch that — try again.");
+      }
+      setBusy(false);
+    };
+
+    recognizer.onend = function () {
+      stopBarAnim();
+      var question = finalTranscript.trim();
+      if (!question) {
+        setStatus("STANDBY");
+        setBusy(false);
+        return;
+      }
       youEl.textContent = question;
       respond(question);
-    } else {
-      youEl.style.opacity = "0"; youEl.textContent = "";
-      setStatus("LISTENING", "listening");
-      startBarAnim();
-      setTimeout(function () {
-        stopBarAnim();
-        typeLine(youEl, question, function () { respond(question); });
-      }, 1500);
+    };
+
+    try {
+      recognizer.start();
+    } catch (e) {
+      stopBarAnim();
+      setStatus("STANDBY");
+      setBusy(false);
     }
   }
 
-  coreHit.addEventListener("click", function () {
-    ask(canned[cycleIndex]);
-    cycleIndex = (cycleIndex + 1) % canned.length;
-  });
+  coreHit.addEventListener("click", startListening);
 
   quickChips.forEach(function (chip) {
     chip.addEventListener("click", function () {
       var idx = parseInt(chip.getAttribute("data-ask"), 10);
-      ask(canned[idx], { skipListen: true });
+      ask(canned[idx]);
     });
   });
 })();
